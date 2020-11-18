@@ -8,7 +8,7 @@
 
 Windows下使用
 
-![Windows使用](https://wsdbd.s3-ap-northeast-1.amazonaws.com/Kapture+2020-11-18+at+11.18.39.gif)
+![Windows使用](screenshot-win.gif)
 
 
 #### 参考
