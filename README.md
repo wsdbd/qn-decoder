@@ -6,6 +6,10 @@
 ./qn-decoder -i 输入文件夹 -o 输出文件夹
 ```
 
+Mac下使用(Linux类似的)
+
+![Mac下使用](screenshot-mac.gif)
+
 Windows下使用
 
 ![Windows使用](screenshot-win.gif)
