@@ -29,10 +29,17 @@ func main() {
   _ = os.Mkdir(outputPath, os.ModePerm)
 
   err = filepath.Walk(inputPath,
-      func(path string, info os.FileInfo, err error) error {
+    func(path string, info os.FileInfo, err error) error {
+      defer func() {
+          if r := recover(); r != nil {
+              logger.Println("转换失败：", path)
+          }
+      }()
+
       if err != nil {
           return err
       }
+
 
       extname := filepath.Ext(path)
       if extname == ".ncm" {

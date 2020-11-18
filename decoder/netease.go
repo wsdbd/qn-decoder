@@ -15,6 +15,10 @@ import (
 
   "github.com/wsdbd/qn-decoder/logger"
   "github.com/bogem/id3v2"
+  // "github.com/frolovo22/tag"
+  "github.com/go-flac/go-flac"
+  "github.com/go-flac/flacpicture"
+  "github.com/go-flac/flacvorbis"
 )
 
 var (
@@ -110,6 +114,10 @@ func DecodeNCM(filePath string, outputFolder string) {
     }
   }
 
+  if metaFormat, ok := metaDataMap["format"]; ok {
+    format = metaFormat.(string)
+  }
+
   f.Seek(5, 1)
   imageSpaceBytes := make([]byte, 4)
   f.Read(imageSpaceBytes)
@@ -163,6 +171,34 @@ func DecodeNCM(filePath string, outputFolder string) {
   }
   of.Sync()
 
+
+  artistName := ""
+  if artists, ok := metaDataMap["artist"]; ok {
+    tp := reflect.TypeOf(artists)
+    nameArr := make([]string, 0)
+    switch tp.Kind() {
+    case reflect.Slice, reflect.Array:
+      items := reflect.ValueOf(artists)
+      for i := 0; i < items.Len(); i++ {
+        item := items.Index(i).Interface()
+        tp1 := reflect.TypeOf(item)
+        switch tp1.Kind() {
+        case reflect.Slice, reflect.Array:
+          values := reflect.ValueOf(item)
+          if values.Len() > 0 {
+            nameArr = append(nameArr, values.Index(0).Interface().(string))
+          }
+        }
+      }
+    }
+    artistName = strings.Join(nameArr, "/")
+  }
+
+  imageFormat := "image/jpeg"
+  if string(imageDataBytes[0:4]) == string(Unhexlify("89504E47")) {
+    imageFormat = "image/png"
+  }
+
   if format == "mp3" {
     mp3File, err := id3v2.Open(outPath, id3v2.Options{Parse: false})
     defer mp3File.Close()
@@ -172,35 +208,14 @@ func DecodeNCM(filePath string, outputFolder string) {
     }
 
     mp3File.SetDefaultEncoding(id3v2.EncodingUTF8)
-
-    if artists, ok := metaDataMap["artist"]; ok {
-      tp := reflect.TypeOf(artists)
-      nameArr := make([]string, 0)
-      switch tp.Kind() {
-      case reflect.Slice, reflect.Array:
-        items := reflect.ValueOf(artists)
-        for i := 0; i < items.Len(); i++ {
-          item := items.Index(i).Interface()
-          tp1 := reflect.TypeOf(item)
-          switch tp1.Kind() {
-          case reflect.Slice, reflect.Array:
-            values := reflect.ValueOf(item)
-            if values.Len() > 0 {
-              nameArr = append(nameArr, values.Index(0).Interface().(string))
-            }
-          }
-        }
-      }
-      artistName := strings.Join(nameArr, "/")
-      mp3File.SetArtist(artistName)
-    }
+    mp3File.SetArtist(artistName)
     mp3File.SetTitle(fmt.Sprintf("%v", metaDataMap["musicName"]))
     mp3File.SetAlbum(fmt.Sprintf("%v", metaDataMap["album"]))
 
     if len(imageDataBytes) > 0 {
       pic := id3v2.PictureFrame{
     		Encoding:    id3v2.EncodingISO,
-    		MimeType:    "image/jpeg",
+    		MimeType:    imageFormat,
     		PictureType: id3v2.PTFrontCover,
     		Description: "Front cover",
     		Picture:     imageDataBytes,
@@ -213,11 +228,86 @@ func DecodeNCM(filePath string, outputFolder string) {
     }
 
   } else {
+    flacFile, err := flac.ParseFile(outPath)
+    if err != nil {
+      logger.Println(err)
+    }
+
+    cmts, idx := extractFLACComment(outPath)
+  	if cmts == nil && idx > 0 {
+  		cmts = flacvorbis.New()
+  	}
+  	cmts.Add(flacvorbis.FIELD_TITLE, fmt.Sprintf("%v", metaDataMap["musicName"]))
+    cmts.Add(flacvorbis.FIELD_ALBUM, fmt.Sprintf("%v", metaDataMap["album"]))
+    cmts.Add(flacvorbis.FIELD_ARTIST, artistName)
+
+  	cmtsmeta := cmts.Marshal()
+  	if idx > 0 {
+  		flacFile.Meta[idx] = &cmtsmeta
+  	} else {
+  		flacFile.Meta = append(flacFile.Meta, &cmtsmeta)
+  	}
+
+    var pic *flacpicture.MetadataBlockPicture
+    pic = extractFLACCover(outPath)
+    if pic != nil {
+      pic.ImageData = imageDataBytes
+    } else {
+      pic, err = flacpicture.NewFromImageData(flacpicture.PictureTypeFrontCover, "Front cover", imageDataBytes, imageFormat)
+      if err != nil {
+        logger.Println(err)
+      }
+      picturemeta := pic.Marshal()
+      flacFile.Meta = append(flacFile.Meta, &picturemeta)
+    }
+
+  	err = flacFile.Save(outPath)
+    if err != nil {
+      logger.Println(err)
+  	}
 
   }
 
-
   logger.Println(basename, "->", newFilename)
+}
+
+func extractFLACComment(fileName string) (*flacvorbis.MetaDataBlockVorbisComment, int) {
+	f, err := flac.ParseFile(fileName)
+	if err != nil {
+    logger.Println(err)
+	}
+
+	var cmt *flacvorbis.MetaDataBlockVorbisComment
+	var cmtIdx int
+	for idx, meta := range f.Meta {
+		if meta.Type == flac.VorbisComment {
+			cmt, err = flacvorbis.ParseFromMetaDataBlock(*meta)
+			cmtIdx = idx
+			if err != nil {
+        logger.Println(err)
+			}
+		}
+  }
+	return cmt, cmtIdx
+}
+
+func extractFLACCover(fileName string) *flacpicture.MetadataBlockPicture {
+	f, err := flac.ParseFile(fileName)
+	if err != nil {
+		logger.Println(err)
+    return nil
+	}
+
+  var pic *flacpicture.MetadataBlockPicture
+	for _, meta := range f.Meta {
+		if meta.Type == flac.Picture {
+			pic, err = flacpicture.ParseFromMetaDataBlock(*meta)
+			if err != nil {
+				logger.Println(err)
+			}
+		}
+  }
+  return pic
 }
 
 // func NewImageFrame(ft idv23.FrameType, mime_type string, image_data []byte) *idv23.ImageFrame {
