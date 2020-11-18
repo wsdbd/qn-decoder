@@ -6,6 +6,10 @@
 ./qn-decoder -i 输入文件夹 -o 输出文件夹
 ```
 
+Windows下使用
+
+![Windows使用](https://wsdbd.s3-ap-northeast-1.amazonaws.com/Kapture+2020-11-18+at+11.18.39.gif)
+
 
 #### 参考
 参考了下边的两个代码，只是使用`golang`重写过
